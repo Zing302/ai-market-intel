@@ -22,6 +22,7 @@ IMAP_HOST = "imap.gmail.com"
 IMAP_PORT = 993
 SENT_FOLDER = '"[Gmail]/Sent Mail"'
 RETENTION_DAYS = 1
+REPORT_SUBJECT_PREFIX = "AI Market Intel Report"
 
 
 def _cutoff_str(days: int) -> str:
@@ -37,7 +38,7 @@ def delete_old_sent(imap: imaplib.IMAP4_SSL, dry_run: bool = False) -> int:
         raise RuntimeError(f"Could not select folder {SENT_FOLDER}")
 
     cutoff = _cutoff_str(RETENTION_DAYS)
-    status, data = imap.search(None, f"SENTBEFORE {cutoff}")
+    status, data = imap.search(None, f'SENTBEFORE {cutoff} SUBJECT "{REPORT_SUBJECT_PREFIX}"')
     if status != "OK":
         raise RuntimeError("IMAP SEARCH failed")
 

@@ -48,6 +48,15 @@ def test_messages_found_returns_count():
     assert count == 3
 
 
+def test_search_includes_subject_filter():
+    from scripts.cleanup_email import REPORT_SUBJECT_PREFIX
+    imap = _make_imap([b"1"])
+    delete_old_sent(imap)
+    search_args = imap.search.call_args.args[1]
+    assert REPORT_SUBJECT_PREFIX in search_args
+    assert "SENTBEFORE" in search_args
+
+
 def test_messages_deleted_with_store_and_expunge():
     imap = _make_imap([b"1", b"2"])
     delete_old_sent(imap)
