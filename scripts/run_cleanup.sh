@@ -11,6 +11,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] cleanup starting" >> "$LOG_FILE"
 cd "$PROJECT_DIR"
 bash "$PROJECT_DIR/scripts/cleanup_logs.sh" >> "$LOG_FILE" 2>&1
 $PYTHON scripts/cleanup_db.py >> "$LOG_FILE" 2>&1
+$PYTHON scripts/cleanup_email.py >> "$LOG_FILE" 2>&1
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ]; then
