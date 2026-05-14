@@ -1,0 +1,5 @@
+# Add these lines to crontab (run: crontab -e)
+# Runs after market close on weekdays
+CRON_TZ=America/New_York
+0 2 * * 1-5 /bin/bash /Users/sanjaybollini/ai-market-intel/scripts/run_cleanup.sh
+0 3 * * 1-5 /opt/miniconda3/envs/market_env/bin/python /Users/sanjaybollini/ai-market-intel/scripts/outcome_backfill.py

@@ -241,12 +241,65 @@ def build_suggestions(prices: list[dict], alerts: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def fetch_approved_recs(conn) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT symbol, action, score, rationale, techniques_used,
+                   confidence_flag, manager_decision, created_at
+            FROM recommendations
+            WHERE status = 'approved'
+              AND created_at >= NOW() - INTERVAL '4 hours'
+            ORDER BY ABS(score) DESC
+            LIMIT 10
+            """,
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "symbol": r[0],
+            "action": r[1],
+            "score": float(r[2]),
+            "rationale": r[3],
+            "techniques_used": r[4],
+            "confidence_flag": r[5],
+            "manager_decision": r[6],
+            "created_at": r[7].strftime("%H:%M"),
+        }
+        for r in rows
+    ]
+
+
+def build_recommendations_section(recs: list[dict]) -> str:
+    lines = ["TRADING SIGNALS  [SIGNAL ONLY — NOT FINANCIAL ADVICE]", "=" * 40]
+    if not recs:
+        lines.append("No approved signals in the last 4 hours.")
+        return "\n".join(lines)
+
+    for r in recs:
+        flag = f"  ⚠ low confidence" if r["confidence_flag"] == "low" else ""
+        override = "  → overridden to HOLD" if r["manager_decision"] == "override_to_hold" else ""
+        lines.append(
+            f"[{r['created_at']}] {r['symbol']:<6} {r['action']:<4} "
+            f"score={r['score']:+.2f}{flag}{override}"
+        )
+        rationale = r["rationale"] or ""
+        if rationale.startswith("[SIGNAL ONLY") and "] " in rationale:
+            rationale = rationale.split("] ", 1)[1]
+        lines.append(f"  {rationale}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
 def build_email_body(prices: list[dict], alerts: list[dict], summaries: list[dict],
-                     trends: list[dict]) -> str:
+                     trends: list[dict], recs: list[dict] | None = None) -> str:
     today = date.today().strftime("%B %d, %Y")
     header = f"AI Market Intelligence Report — {today}\n"
     sections = [
         header,
+        build_recommendations_section(recs or []),
+        "",
         build_stock_summary(prices),
         "",
         build_alerts_section(alerts),
@@ -276,15 +329,16 @@ def run():
 
         summaries = get_recent_summaries(conn)
         trends = get_recent_trends(conn)
+        recs = fetch_approved_recs(conn)
     finally:
         conn.close()
 
     logger.info(
         f"Fetched {len(prices)} symbols, {len(alerts)} alerts, "
-        f"{len(summaries)} summaries, {len(trends)} trends."
+        f"{len(summaries)} summaries, {len(trends)} trends, {len(recs)} approved recs."
     )
 
-    body = build_email_body(prices, alerts, summaries, trends)
+    body = build_email_body(prices, alerts, summaries, trends, recs)
     subject = f"AI Market Intel Report — {date.today().isoformat()}"
 
     send_email(subject, body)

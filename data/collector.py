@@ -6,7 +6,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import yfinance as yf
 from utils.db import get_connection
 from utils.logger import get_logger
-from config.settings import TRACKED_STOCKS, ALERT_THRESHOLDS
+from utils.symbols import get_tracked_symbols
+from config.settings import ALERT_THRESHOLDS
 
 logger = get_logger("collector")
 
@@ -66,9 +67,10 @@ def maybe_insert_alert(cur, symbol: str, current_price: float, prev_price: float
 def run():
     successes = 0
     conn = get_connection()
+    tracked = get_tracked_symbols(conn)
     try:
         with conn.cursor() as cur:
-            for symbol in TRACKED_STOCKS:
+            for symbol in tracked:
                 price = fetch_price(symbol)
                 if price is None:
                     continue
@@ -103,7 +105,7 @@ def run():
         logger.critical("All symbols failed to fetch. Exiting.")
         sys.exit(1)
 
-    logger.info(f"Collection complete — {successes}/{len(TRACKED_STOCKS)} symbols stored.")
+    logger.info(f"Collection complete — {successes}/{len(tracked)} symbols stored.")
 
 
 if __name__ == "__main__":

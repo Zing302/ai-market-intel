@@ -3,3 +3,7 @@ psycopg2-binary
 python-dotenv
 anthropic
 feedparser
+pytest
+pytest-mock
+ta
+uuid6
