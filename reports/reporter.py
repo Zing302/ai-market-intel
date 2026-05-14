@@ -1,6 +1,6 @@
 import sys
 import os
-import re
+
 from datetime import date, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -131,82 +131,54 @@ def get_recent_summaries(conn) -> list[dict]:
     ]
 
 
-def _strip_markdown(text: str) -> str:
-    text = re.sub(r"\*+", "", text)
-    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^\s*[-|]+\s*$", "", text, flags=re.MULTILINE)
-    text = re.sub(r"\|", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
-
-
-def _extract_field(summary_text: str, field: str) -> str | None:
-    pattern = rf"{field}:?\s*(.*?)(?=\n\d+\.|(?:AI_CAPEX|GPU_DEMAND|DATA_CENTER|GUIDANCE|RISKS|SENTIMENT):?|$)"
-    match = re.search(pattern, summary_text, re.DOTALL | re.IGNORECASE)
-    if not match:
-        return None
-    value = match.group(1).strip().splitlines()[0].strip()
-    return _strip_markdown(value) if value else None
-
-
 def build_earnings_section(summaries: list[dict]) -> str:
-    lines = ["EARNINGS INTELLIGENCE", "=" * 40]
+    lines = ["AI INVESTMENT SIGNALS", "=" * 40]
     if not summaries:
         lines.append("No recent earnings summaries available.")
         return "\n".join(lines)
 
     for s in summaries:
         quarter = f" ({s['quarter']})" if s["quarter"] else ""
-        lines.append(f"{s['symbol']}{quarter}  —  Filed {s['filing_date']}")
+        flag = "  ⚡ AI capex flagged" if s["ai_capex_flag"] else ""
+        lines.append(f"{s['symbol']}{quarter}  —  Filed {s['filing_date']}{flag}")
 
-        ai_capex = _extract_field(s["summary_text"], "AI_CAPEX")
-        sentiment = _extract_field(s["summary_text"], "SENTIMENT")
-
-        if ai_capex:
-            lines.append(f"  AI CAPEX:  {ai_capex}")
-        if sentiment:
-            lines.append(f"  SENTIMENT: {sentiment}")
-        if s["ai_capex_flag"]:
-            lines.append("  ⚡ AI CAPEX MENTIONED")
-        lines.append("")
-
-    return "\n".join(lines).rstrip()
+    return "\n".join(lines)
 
 
 def get_recent_trends(conn) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT DISTINCT ON (symbol, trend_type)
-                symbol, trend_type, headline_count, sample_headlines, detected_at
+            SELECT DISTINCT ON (symbol)
+                symbol, headline_count, sample_headlines, detected_at
             FROM trends
             WHERE detected_at >= NOW() - INTERVAL '24 hours'
-            ORDER BY symbol, trend_type, detected_at DESC
+              AND trend_type = 'AI_KEYWORD_SPIKE'
+            ORDER BY symbol, detected_at DESC
             """,
         )
         rows = cur.fetchall()
     return [
         {
             "symbol": r[0],
-            "trend_type": r[1],
-            "headline_count": r[2],
-            "sample_headlines": r[3],
-            "detected_at": r[4].strftime("%H:%M"),
+            "headline_count": r[1],
+            "sample_headlines": r[2],
+            "detected_at": r[3].strftime("%H:%M"),
         }
         for r in rows
     ]
 
 
 def build_trends_section(trends: list[dict]) -> str:
-    lines = ["TREND REPORT (Last 24 Hours)", "=" * 40]
+    lines = ["AI INVESTMENT TRENDS (Last 24 Hours)", "=" * 40]
     if not trends:
-        lines.append("No trends detected in the last 24 hours.")
+        lines.append("No AI investment keyword spikes detected in the last 24 hours.")
         return "\n".join(lines)
 
     for t in trends:
-        lines.append(f"[{t['detected_at']}] {t['symbol']} — {t['trend_type']}  ({t['headline_count']} headlines)")
+        lines.append(f"[{t['detected_at']}] {t['symbol']}  ({t['headline_count']} AI-keyword headlines)")
         if t["sample_headlines"]:
-            for headline in t["sample_headlines"].split("|"):
+            for headline in t["sample_headlines"].split("|")[:3]:
                 lines.append(f"  • {headline.strip()}")
         lines.append("")
 
