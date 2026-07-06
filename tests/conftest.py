@@ -4,6 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from utils.llm import Completion
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
@@ -59,3 +61,17 @@ def mock_db_conn(mock_db_cursor):
     conn = MagicMock()
     conn.cursor.return_value.__enter__.return_value = mock_db_cursor
     return conn
+
+
+def make_completion(text: str, prompt_tokens: int = 10, completion_tokens: int = 5) -> Completion:
+    """Build a Completion for provider-based agent tests."""
+    return Completion(text=text, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+
+
+@pytest.fixture
+def mock_llm():
+    """LLMProvider stub. Set .complete/.structured return_value or side_effect per test."""
+    llm = MagicMock()
+    llm.complete.return_value = Completion(text="")
+    llm.structured.return_value = {}
+    return llm

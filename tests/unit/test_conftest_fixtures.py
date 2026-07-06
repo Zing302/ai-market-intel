@@ -38,3 +38,17 @@ def test_mock_db_conn_context_manages_cursor(mock_db_conn, mock_db_cursor):
     with mock_db_conn.cursor() as cur:
         cur.execute("SELECT 1")
     mock_db_cursor.execute.assert_called_once_with("SELECT 1")
+
+
+def test_make_completion_builds_completion():
+    from tests.conftest import make_completion
+
+    c = make_completion("bullish")
+    assert c.text == "bullish"
+    assert c.prompt_tokens == 10
+    assert c.completion_tokens == 5
+
+
+def test_mock_llm_fixture_has_complete_and_structured(mock_llm):
+    assert hasattr(mock_llm, "complete")
+    assert hasattr(mock_llm, "structured")
