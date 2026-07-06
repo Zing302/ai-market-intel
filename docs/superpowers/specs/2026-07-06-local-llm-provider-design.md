@@ -43,21 +43,30 @@ duplicated inline retry loops. Entry points: `data/recommendations/run.py:150`,
 A thin interface with two concrete implementations:
 
 ```
+Completion(text: str, prompt_tokens: int = 0, completion_tokens: int = 0)   # dataclass
+
 LLMProvider (interface)
-├── complete(messages, system=None, max_tokens=400, tier="fast") -> str
-└── structured(messages, system=None, schema=..., max_tokens=400, tier="fast") -> dict
+├── complete(messages, system=None, max_tokens=400, tier="fast") -> Completion
+└── structured(messages, schema, name=..., description="", system=None,
+               max_tokens=400, tier="fast") -> dict
 
 AnthropicProvider   → wraps existing call_with_retry / extract_text / extract_tool_input
 OllamaProvider      → ollama pip package against OLLAMA_HOST
 ```
 
-- `complete()` returns the first text block (Anthropic) or `message.content` (Ollama).
+- `complete()` returns a `Completion` carrying the text plus token usage
+  (Anthropic: first text block + `response.usage`; Ollama: `message.content` +
+  `prompt_eval_count`/`eval_count`). Usage is needed by `transcript_ingester`,
+  which persists token counts to the `summaries` table; text-only callers use
+  `.text`.
 - `structured()` returns a dict matching `schema`. Anthropic implements it via tool-use
-  (wrapping `schema` as a single tool's `input_schema`, reusing `extract_tool_input`);
-  Ollama implements it via the `format=<json-schema>` parameter, then `json.loads`
-  the returned content.
+  (wrapping `schema` as a tool's `input_schema` with the given `name`/`description`,
+  reusing `extract_tool_input`); Ollama implements it via the `format=<json-schema>`
+  parameter, then `json.loads` the returned content (ignoring `name`/`description`).
 - Retry/backoff lives **inside** each provider. Anthropic reuses the existing
-  `_BACKOFF` logic; Ollama retries on connection errors / timeouts.
+  `_BACKOFF` logic; Ollama retries on connection errors / timeouts. The old
+  proactive `time.sleep(5)` throttles in `transcript_ingester`/`trend_detector`
+  are dropped — provider backoff covers rate limits.
 
 ### Provider selection
 
