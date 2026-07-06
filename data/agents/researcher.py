@@ -9,15 +9,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-import anthropic
-
-from utils.anthropic_client import call_with_retry, extract_text
 from utils.circuit_breaker import is_open
 from utils.logger import get_logger
 
 logger = get_logger("researcher")
-
-MODEL = "claude-haiku-4-5-20251001"
 
 _SYSTEM = (
     "You are a financial research analyst. You read news, social media, and "
@@ -154,7 +149,7 @@ def analyze(
     symbol: str,
     sector: str,
     conn,
-    client: anthropic.Anthropic,
+    llm,
 ) -> dict:
     """Run the researcher for one symbol. Returns a structured dict."""
     inputs = _fetch_inputs(symbol, conn)
@@ -165,13 +160,10 @@ def analyze(
     transcript_used = inputs["transcript_summary"] is not None
 
     try:
-        response = call_with_retry(
-            client,
+        text = llm.complete(
             messages=[{"role": "user", "content": prompt}],
-            model=MODEL,
             system=_SYSTEM,
-        )
-        text = extract_text(response).upper().lower()  # normalise
+        ).text.lower()
         category, reason = _parse_response(text)
         score = _SENTIMENT_CATEGORIES[category]
         confidence_flag = None

@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_text_response
+from tests.conftest import make_completion
 from data.agents.researcher import analyze, _parse_response
 
 
@@ -51,13 +51,13 @@ def test_parse_response_handles_empty_string():
 
 # ── analyze — happy path ───────────────────────────────────────────────────────
 
-def test_happy_path_returns_structured_dict(mock_anthropic_client):
-    mock_anthropic_client.messages.create.return_value = make_text_response(
+def test_happy_path_returns_structured_dict(mock_llm):
+    mock_llm.complete.return_value = make_completion(
         "bullish\nStrong GPU demand drives positive sentiment."
     )
     conn = _make_conn(articles=[("NVDA AI chip demand surges - Reuters", "Reuters", None)])
 
-    result = analyze("NVDA", "Tech", conn, mock_anthropic_client)
+    result = analyze("NVDA", "Tech", conn, mock_llm)
 
     assert result["symbol"] == "NVDA"
     assert result["category"] == "bullish"
@@ -66,30 +66,30 @@ def test_happy_path_returns_structured_dict(mock_anthropic_client):
     assert result["article_count"] == 1
 
 
-def test_returns_all_five_sentiment_categories(mock_anthropic_client):
+def test_returns_all_five_sentiment_categories(mock_llm):
     for category in ["strong_bearish", "bearish", "neutral", "bullish", "strong_bullish"]:
-        mock_anthropic_client.messages.create.return_value = make_text_response(
+        mock_llm.complete.return_value = make_completion(
             f"{category}\nReason here."
         )
         conn = _make_conn()
-        result = analyze("NVDA", "Tech", conn, mock_anthropic_client)
+        result = analyze("NVDA", "Tech", conn, mock_llm)
         assert result["category"] == category
 
 
-def test_transcript_used_flag_set_when_transcript_present(mock_anthropic_client):
-    mock_anthropic_client.messages.create.return_value = make_text_response("neutral\nX")
+def test_transcript_used_flag_set_when_transcript_present(mock_llm):
+    mock_llm.complete.return_value = make_completion("neutral\nX")
     conn = _make_conn(transcript="We had a strong quarter.")
 
-    result = analyze("MSFT", "Tech", conn, mock_anthropic_client)
+    result = analyze("MSFT", "Tech", conn, mock_llm)
 
     assert result["transcript_used"] is True
 
 
-def test_transcript_used_false_when_absent(mock_anthropic_client):
-    mock_anthropic_client.messages.create.return_value = make_text_response("neutral\nX")
+def test_transcript_used_false_when_absent(mock_llm):
+    mock_llm.complete.return_value = make_completion("neutral\nX")
     conn = _make_conn()
 
-    result = analyze("MSFT", "Tech", conn, mock_anthropic_client)
+    result = analyze("MSFT", "Tech", conn, mock_llm)
 
     assert result["transcript_used"] is False
 
@@ -97,8 +97,8 @@ def test_transcript_used_false_when_absent(mock_anthropic_client):
 # ── analyze — circuit breaker ──────────────────────────────────────────────────
 
 @patch("data.agents.researcher.is_open", return_value=True)
-def test_skips_reddit_when_circuit_open(mock_is_open, mock_anthropic_client):
-    mock_anthropic_client.messages.create.return_value = make_text_response("neutral\nX")
+def test_skips_reddit_when_circuit_open(mock_is_open, mock_llm):
+    mock_llm.complete.return_value = make_completion("neutral\nX")
     # Only 3 cursors needed when reddit skipped: articles, transcript, prior
     conn = MagicMock()
     articles_cur = MagicMock()
@@ -109,18 +109,18 @@ def test_skips_reddit_when_circuit_open(mock_is_open, mock_anthropic_client):
     prior_cur.fetchall.return_value = []
     conn.cursor.return_value.__enter__.side_effect = [articles_cur, transcript_cur, prior_cur]
 
-    result = analyze("XOM", "Energy", conn, mock_anthropic_client)
+    result = analyze("XOM", "Energy", conn, mock_llm)
 
     assert result["social_post_count"] == 0
 
 
 # ── analyze — researcher failure fallback ──────────────────────────────────────
 
-def test_fallback_on_llm_failure(mock_anthropic_client):
-    mock_anthropic_client.messages.create.side_effect = RuntimeError("timeout")
+def test_fallback_on_llm_failure(mock_llm):
+    mock_llm.complete.side_effect = RuntimeError("timeout")
     conn = _make_conn()
 
-    result = analyze("AMD", "Tech", conn, mock_anthropic_client)
+    result = analyze("AMD", "Tech", conn, mock_llm)
 
     assert result["category"] == "neutral"
     assert result["score"] == 0.0
