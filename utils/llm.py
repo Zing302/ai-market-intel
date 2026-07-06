@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from dataclasses import dataclass
 
 import anthropic
@@ -92,7 +93,6 @@ class OllamaProvider:
         for attempt, wait in enumerate([0] + _OLLAMA_RETRY_BACKOFF):
             if wait:
                 logger.warning(f"Ollama call failed, retrying in {wait}s ({last_exc})")
-                import time
                 time.sleep(wait)
             try:
                 return self._client.chat(**kwargs)

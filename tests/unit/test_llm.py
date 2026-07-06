@@ -1,8 +1,6 @@
 import json
 from unittest.mock import MagicMock
 
-import pytest
-
 from tests.conftest import make_text_response, make_tool_use_response
 from utils.llm import Completion, AnthropicProvider, OllamaProvider
 
