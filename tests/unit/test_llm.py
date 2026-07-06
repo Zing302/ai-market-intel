@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from tests.conftest import make_text_response, make_tool_use_response
 from utils.llm import Completion, AnthropicProvider, OllamaProvider
@@ -115,3 +115,24 @@ def test_ollama_structured_parses_json_and_passes_format():
 
     assert result == {"action": "BUY", "score": 0.7}
     assert client.chat.call_args.kwargs["format"] == schema
+
+
+def test_get_provider_defaults_to_anthropic(monkeypatch):
+    from utils.llm import get_provider
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    with patch("utils.llm.anthropic.Anthropic", return_value=MagicMock()):
+        assert isinstance(get_provider(), AnthropicProvider)
+
+
+def test_get_provider_unknown_value_falls_back_to_anthropic(monkeypatch):
+    from utils.llm import get_provider
+    monkeypatch.setenv("LLM_PROVIDER", "banana")
+    with patch("utils.llm.anthropic.Anthropic", return_value=MagicMock()):
+        assert isinstance(get_provider(), AnthropicProvider)
+
+
+def test_get_provider_ollama_when_selected(monkeypatch):
+    from utils.llm import get_provider
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    with patch("utils.llm.ollama.Client", return_value=MagicMock()):
+        assert isinstance(get_provider(), OllamaProvider)

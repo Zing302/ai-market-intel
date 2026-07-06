@@ -2,8 +2,10 @@ yfinance
 psycopg2-binary
 python-dotenv
 anthropic
+ollama
 feedparser
 pytest
 pytest-mock
 ta
 uuid6
+flask

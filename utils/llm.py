@@ -114,3 +114,11 @@ class OllamaProvider:
             messages=messages, system=system, max_tokens=max_tokens, tier=tier, fmt=schema
         )
         return json.loads(resp["message"]["content"])
+
+
+def get_provider():
+    """Return the configured LLM provider. Defaults to Anthropic."""
+    choice = os.getenv("LLM_PROVIDER", "anthropic").strip().lower()
+    if choice == "ollama":
+        return OllamaProvider()
+    return AnthropicProvider()
