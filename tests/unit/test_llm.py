@@ -1,7 +1,10 @@
+import json
 from unittest.mock import MagicMock
 
+import pytest
+
 from tests.conftest import make_text_response, make_tool_use_response
-from utils.llm import Completion, AnthropicProvider
+from utils.llm import Completion, AnthropicProvider, OllamaProvider
 
 
 def _anthropic_client():
@@ -57,3 +60,60 @@ def test_anthropic_structured_returns_tool_input_dict():
     tool = client.messages.create.call_args.kwargs["tools"][0]
     assert tool["name"] == "submit_recommendation"
     assert tool["input_schema"] == {"type": "object"}
+
+
+def _ollama_chat_response(content, prompt=7, completion=3):
+    return {
+        "message": {"role": "assistant", "content": content},
+        "prompt_eval_count": prompt,
+        "eval_count": completion,
+    }
+
+
+def test_ollama_complete_returns_completion():
+    client = MagicMock()
+    client.chat.return_value = _ollama_chat_response("neutral\nsteady")
+    provider = OllamaProvider(client=client, model_fast="qwen3", model_smart="qwen3")
+
+    result = provider.complete(messages=[{"role": "user", "content": "hi"}])
+
+    assert result.text == "neutral\nsteady"
+    assert result.prompt_tokens == 7
+    assert result.completion_tokens == 3
+    assert client.chat.call_args.kwargs["model"] == "qwen3"
+
+
+def test_ollama_complete_prepends_system_message():
+    client = MagicMock()
+    client.chat.return_value = _ollama_chat_response("ok")
+    provider = OllamaProvider(client=client, model_fast="qwen3", model_smart="qwen3")
+
+    provider.complete(messages=[{"role": "user", "content": "q"}], system="You are X.")
+
+    sent = client.chat.call_args.kwargs["messages"]
+    assert sent[0] == {"role": "system", "content": "You are X."}
+    assert sent[1] == {"role": "user", "content": "q"}
+
+
+def test_ollama_smart_tier_uses_smart_model():
+    client = MagicMock()
+    client.chat.return_value = _ollama_chat_response("keep")
+    provider = OllamaProvider(client=client, model_fast="qwen3", model_smart="qwen3-big")
+
+    provider.complete(messages=[{"role": "user", "content": "q"}], tier="smart")
+
+    assert client.chat.call_args.kwargs["model"] == "qwen3-big"
+
+
+def test_ollama_structured_parses_json_and_passes_format():
+    client = MagicMock()
+    schema = {"type": "object", "properties": {"action": {"type": "string"}}}
+    client.chat.return_value = _ollama_chat_response(json.dumps({"action": "BUY", "score": 0.7}))
+    provider = OllamaProvider(client=client, model_fast="qwen3", model_smart="qwen3")
+
+    result = provider.structured(
+        messages=[{"role": "user", "content": "decide"}], schema=schema, name="submit_recommendation"
+    )
+
+    assert result == {"action": "BUY", "score": 0.7}
+    assert client.chat.call_args.kwargs["format"] == schema
