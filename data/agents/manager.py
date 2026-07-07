@@ -11,14 +11,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-import anthropic
-
-from utils.anthropic_client import call_with_retry, extract_text
 from utils.logger import get_logger
 
 logger = get_logger("manager")
-
-ESCALATION_MODEL = "claude-sonnet-4-6"
 
 _VALID_ACTIONS = {"BUY", "HOLD", "SELL"}
 _MIN_RATIONALE_LEN = 50
@@ -105,7 +100,7 @@ def _should_escalate(rec: dict, analyst: dict) -> bool:
 
 # ── Sonnet escalation ──────────────────────────────────────────────────────────
 
-def _escalate_to_sonnet(rec: dict, client: anthropic.Anthropic) -> str:
+def _escalate(rec: dict, llm) -> str:
     prompt = (
         f"A trading signal system produced this recommendation for {rec.get('symbol')}:\n"
         f"  Action: {rec.get('action')}\n"
@@ -116,18 +111,16 @@ def _escalate_to_sonnet(rec: dict, client: anthropic.Anthropic) -> str:
         "Reply with exactly one of: keep, override_to_hold, reject"
     )
     try:
-        response = call_with_retry(
-            client,
+        decision = llm.complete(
             messages=[{"role": "user", "content": prompt}],
-            model=ESCALATION_MODEL,
-        )
-        decision = extract_text(response).lower().strip().split()[0]
+            tier="smart",
+        ).text.lower().strip().split()[0]
         if decision not in ("keep", "override_to_hold", "reject"):
-            logger.warning(f"Unexpected Sonnet decision '{decision}', defaulting to 'keep'.")
+            logger.warning(f"Unexpected escalation decision '{decision}', defaulting to 'keep'.")
             decision = "keep"
         return decision
     except Exception as exc:
-        logger.warning(f"Sonnet escalation failed ({exc}), defaulting to 'keep'.")
+        logger.warning(f"Escalation failed ({exc}), defaulting to 'keep'.")
         return "keep"
 
 
@@ -137,7 +130,7 @@ def review(
     rec: dict,
     analyst: dict,
     conn,
-    client: anthropic.Anthropic,
+    llm,
 ) -> dict:
     """Run manager checks on a pending recommendation. Returns updated rec dict."""
     symbol = rec.get("symbol", "?")
@@ -157,7 +150,7 @@ def review(
 
         if _should_escalate(rec, analyst):
             logger.info(f"{symbol} rec id={rec_id}: escalating to Sonnet for sanity check.")
-            decision = _escalate_to_sonnet(rec, client)
+            decision = _escalate(rec, llm)
             manager_decision = decision
             if decision == "reject":
                 status = "flagged"

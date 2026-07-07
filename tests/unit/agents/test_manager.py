@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_text_response
+from tests.conftest import make_completion
 from data.agents.manager import (
     _check_action_score_sign,
     _check_rationale,
@@ -136,9 +136,9 @@ def test_no_escalate_when_analyst_data_insufficient():
 
 # ── review — approved path ─────────────────────────────────────────────────────
 
-def test_valid_rec_gets_approved(mock_anthropic_client):
+def test_valid_rec_gets_approved(mock_llm):
     conn, cur = _make_conn()
-    result = review(_rec(), _analyst(), conn, mock_anthropic_client)
+    result = review(_rec(), _analyst(), conn, mock_llm)
 
     assert result["status"] == "approved"
     assert result["flag_reason"] is None
@@ -146,63 +146,63 @@ def test_valid_rec_gets_approved(mock_anthropic_client):
     assert "approved" in params
 
 
-def test_approved_rec_commits(mock_anthropic_client):
+def test_approved_rec_commits(mock_llm):
     conn, _ = _make_conn()
-    review(_rec(), _analyst(), conn, mock_anthropic_client)
+    review(_rec(), _analyst(), conn, mock_llm)
     conn.commit.assert_called_once()
 
 
 # ── review — flagged path ──────────────────────────────────────────────────────
 
-def test_invalid_action_score_gets_flagged(mock_anthropic_client):
+def test_invalid_action_score_gets_flagged(mock_llm):
     conn, _ = _make_conn()
-    result = review(_rec(action="BUY", score=-0.5), _analyst(), conn, mock_anthropic_client)
+    result = review(_rec(action="BUY", score=-0.5), _analyst(), conn, mock_llm)
 
     assert result["status"] == "flagged"
     assert result["flag_reason"] is not None
 
 
-def test_no_llm_call_for_deterministic_failure(mock_anthropic_client):
+def test_no_llm_call_for_deterministic_failure(mock_llm):
     conn, _ = _make_conn()
-    review(_rec(action="BUY", score=-0.5), _analyst(), conn, mock_anthropic_client)
-    mock_anthropic_client.messages.create.assert_not_called()
+    review(_rec(action="BUY", score=-0.5), _analyst(), conn, mock_llm)
+    mock_llm.complete.assert_not_called()
 
 
 # ── review — Sonnet escalation ─────────────────────────────────────────────────
 
-def test_escalation_keep_leaves_approved(mock_anthropic_client):
-    mock_anthropic_client.messages.create.return_value = make_text_response("keep")
+def test_escalation_keep_leaves_approved(mock_llm):
+    mock_llm.complete.return_value = make_completion("keep")
     conn, _ = _make_conn()
     # High score triggers escalation
-    result = review(_rec(score=0.95), _analyst(), conn, mock_anthropic_client)
+    result = review(_rec(score=0.95), _analyst(), conn, mock_llm)
 
     assert result["status"] == "approved"
     assert result["manager_decision"] == "keep"
-    mock_anthropic_client.messages.create.assert_called_once()
+    mock_llm.complete.assert_called_once()
 
 
-def test_escalation_override_to_hold(mock_anthropic_client):
-    mock_anthropic_client.messages.create.return_value = make_text_response("override_to_hold")
+def test_escalation_override_to_hold(mock_llm):
+    mock_llm.complete.return_value = make_completion("override_to_hold")
     conn, _ = _make_conn()
-    result = review(_rec(action="BUY", score=0.95), _analyst(), conn, mock_anthropic_client)
+    result = review(_rec(action="BUY", score=0.95), _analyst(), conn, mock_llm)
 
     assert result["action"] == "HOLD"
     assert result["score"] == 0.0
 
 
-def test_escalation_reject_flags_rec(mock_anthropic_client):
-    mock_anthropic_client.messages.create.return_value = make_text_response("reject")
+def test_escalation_reject_flags_rec(mock_llm):
+    mock_llm.complete.return_value = make_completion("reject")
     conn, _ = _make_conn()
-    result = review(_rec(score=0.95), _analyst(), conn, mock_anthropic_client)
+    result = review(_rec(score=0.95), _analyst(), conn, mock_llm)
 
     assert result["status"] == "flagged"
     assert "Sonnet" in result["flag_reason"]
 
 
-def test_escalation_failure_defaults_to_keep(mock_anthropic_client):
-    mock_anthropic_client.messages.create.side_effect = RuntimeError("timeout")
+def test_escalation_failure_defaults_to_keep(mock_llm):
+    mock_llm.complete.side_effect = RuntimeError("timeout")
     conn, _ = _make_conn()
-    result = review(_rec(score=0.95), _analyst(), conn, mock_anthropic_client)
+    result = review(_rec(score=0.95), _analyst(), conn, mock_llm)
 
     assert result["status"] == "approved"
     assert result["manager_decision"] == "keep"
