@@ -2,7 +2,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tests.conftest import make_text_response, make_tool_use_response
 from data.agents.trader import decide, SUBMIT_TOOL
 
 
@@ -66,11 +65,9 @@ def test_submit_tool_techniques_enum():
 
 # ── decide — happy path ────────────────────────────────────────────────────────
 
-def test_happy_path_returns_buy(mock_anthropic_client):
-    mock_anthropic_client.messages.create.return_value = make_tool_use_response(
-        "submit_recommendation", _rec_payload("BUY", 0.6)
-    )
-    result = decide("NVDA", "Tech", _analyst(), _researcher(), mock_anthropic_client)
+def test_happy_path_returns_buy(mock_llm):
+    mock_llm.structured.return_value = _rec_payload("BUY", 0.6)
+    result = decide("NVDA", "Tech", _analyst(), _researcher(), mock_llm)
 
     assert result["action"] == "BUY"
     assert result["score"] == 0.6
@@ -78,73 +75,53 @@ def test_happy_path_returns_buy(mock_anthropic_client):
     assert "momentum" in result["techniques_used"]
 
 
-def test_happy_path_sell(mock_anthropic_client):
-    mock_anthropic_client.messages.create.return_value = make_tool_use_response(
-        "submit_recommendation", _rec_payload("SELL", -0.4)
-    )
-    result = decide("NVDA", "Tech", _analyst("bearish"), _researcher("bearish", -0.5), mock_anthropic_client)
+def test_happy_path_sell(mock_llm):
+    mock_llm.structured.return_value = _rec_payload("SELL", -0.4)
+    result = decide("NVDA", "Tech", _analyst("bearish"), _researcher("bearish", -0.5), mock_llm)
 
     assert result["action"] == "SELL"
     assert result["score"] == -0.4
 
 
-def test_symbol_propagated(mock_anthropic_client):
-    mock_anthropic_client.messages.create.return_value = make_tool_use_response(
-        "submit_recommendation", _rec_payload()
-    )
-    result = decide("XOM", "Energy", _analyst(), _researcher(), mock_anthropic_client)
+def test_symbol_propagated(mock_llm):
+    mock_llm.structured.return_value = _rec_payload()
+    result = decide("XOM", "Energy", _analyst(), _researcher(), mock_llm)
     assert result["symbol"] == "XOM"
 
 
-def test_techniques_list_returned(mock_anthropic_client):
+def test_techniques_list_returned(mock_llm):
     payload = _rec_payload()
     payload["techniques_used"] = ["momentum", "mean_reversion", "event_driven"]
-    mock_anthropic_client.messages.create.return_value = make_tool_use_response(
-        "submit_recommendation", payload
-    )
-    result = decide("NVDA", "Tech", _analyst(), _researcher(), mock_anthropic_client)
+    mock_llm.structured.return_value = payload
+    result = decide("NVDA", "Tech", _analyst(), _researcher(), mock_llm)
     assert "mean_reversion" in result["techniques_used"]
 
 
 # ── decide — researcher low confidence ────────────────────────────────────────
 
-def test_propagates_researcher_low_confidence_flag(mock_anthropic_client):
-    mock_anthropic_client.messages.create.return_value = make_tool_use_response(
-        "submit_recommendation", _rec_payload()
-    )
-    result = decide("NVDA", "Tech", _analyst(), _researcher(flag="low"), mock_anthropic_client)
+def test_propagates_researcher_low_confidence_flag(mock_llm):
+    mock_llm.structured.return_value = _rec_payload()
+    result = decide("NVDA", "Tech", _analyst(), _researcher(flag="low"), mock_llm)
     assert result["confidence_flag"] == "low"
 
 
 # ── decide — insufficient analyst data ────────────────────────────────────────
 
-def test_insufficient_analyst_data_still_calls_llm(mock_anthropic_client):
-    mock_anthropic_client.messages.create.return_value = make_tool_use_response(
-        "submit_recommendation", _rec_payload("HOLD", 0.0)
-    )
-    result = decide("NVDA", "Tech", _analyst(insufficient=True), _researcher(), mock_anthropic_client)
+def test_insufficient_analyst_data_still_calls_llm(mock_llm):
+    mock_llm.structured.return_value = _rec_payload("HOLD", 0.0)
+    result = decide("NVDA", "Tech", _analyst(insufficient=True), _researcher(), mock_llm)
     assert result["action"] == "HOLD"
-    mock_anthropic_client.messages.create.assert_called_once()
+    mock_llm.structured.assert_called_once()
 
 
 # ── decide — LLM failure fallback ─────────────────────────────────────────────
 
-def test_fallback_hold_on_llm_failure(mock_anthropic_client):
-    mock_anthropic_client.messages.create.side_effect = RuntimeError("timeout")
+def test_fallback_hold_on_llm_failure(mock_llm):
+    mock_llm.structured.side_effect = RuntimeError("timeout")
 
-    result = decide("NVDA", "Tech", _analyst(), _researcher(), mock_anthropic_client)
+    result = decide("NVDA", "Tech", _analyst(), _researcher(), mock_llm)
 
     assert result["action"] == "HOLD"
     assert result["score"] == 0.0
     assert result["confidence_flag"] == "low"
     assert "NOT FINANCIAL ADVICE" in result["rationale"]
-
-
-def test_fallback_when_tool_use_block_missing(mock_anthropic_client):
-    # Model returns text instead of tool_use block
-    mock_anthropic_client.messages.create.return_value = make_text_response("BUY")
-
-    result = decide("NVDA", "Tech", _analyst(), _researcher(), mock_anthropic_client)
-
-    assert result["action"] == "HOLD"
-    assert result["confidence_flag"] == "low"

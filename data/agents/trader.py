@@ -8,14 +8,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-import anthropic
-
-from utils.anthropic_client import call_with_retry, extract_tool_input
 from utils.logger import get_logger
 
 logger = get_logger("trader")
-
-MODEL = "claude-haiku-4-5-20251001"
 
 SUBMIT_TOOL = {
     "name": "submit_recommendation",
@@ -108,21 +103,20 @@ def decide(
     sector: str,
     analyst: dict,
     researcher: dict,
-    client: anthropic.Anthropic,
+    llm,
 ) -> dict:
     """Run the trader for one symbol. Returns a structured recommendation dict."""
     prompt = _build_prompt(symbol, sector, analyst, researcher)
 
     try:
-        response = call_with_retry(
-            client,
+        tool_input = llm.structured(
             messages=[{"role": "user", "content": prompt}],
-            model=MODEL,
-            max_tokens=400,
-            tools=[SUBMIT_TOOL],
+            schema=SUBMIT_TOOL["input_schema"],
+            name=SUBMIT_TOOL["name"],
+            description=SUBMIT_TOOL["description"],
             system=_SYSTEM,
+            max_tokens=400,
         )
-        tool_input = extract_tool_input(response, "submit_recommendation")
         confidence_flag = researcher.get("confidence_flag")
     except Exception as exc:
         logger.warning(f"{symbol}: trader failed ({exc}). Using HOLD fallback.")
