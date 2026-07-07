@@ -8,17 +8,16 @@ from bs4 import BeautifulSoup
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import anthropic
 from dotenv import load_dotenv
 from utils.db import get_connection
 from utils.logger import get_logger
+from utils.llm import get_provider
 from config.settings import TRACKED_STOCKS
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../config/.env"))
 
 logger = get_logger("transcript_ingester")
 
-MODEL = "claude-haiku-4-5-20251001"
 CHARS_PER_TOKEN = 4
 MAX_CHARS_PER_CHUNK = 80_000 * CHARS_PER_TOKEN  # ~320k chars ≈ 80k tokens
 LOOKBACK_DAYS = 90
@@ -219,42 +218,29 @@ def insert_summary(cur, transcript_id: int, summary_text: str, ai_capex_flag: bo
             (transcript_id, summary_text, ai_capex_flag, prompt_tokens, completion_tokens, model_used)
         VALUES (%s, %s, %s, %s, %s, %s)
         """,
-        (transcript_id, summary_text, ai_capex_flag, prompt_tokens, completion_tokens, MODEL),
+        (transcript_id, summary_text, ai_capex_flag, prompt_tokens, completion_tokens,
+         os.getenv("LLM_PROVIDER", "anthropic")),
     )
 
 
-# ── Anthropic helpers ──────────────────────────────────────────────────────────
+# ── LLM helpers ─────────────────────────────────────────────────────────────────
 
-def call_claude(client: anthropic.Anthropic, transcript_text: str) -> dict:
-    max_attempts = 3
-    backoff_schedule = [60, 120, 240]
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            response = client.messages.create(
-                model=MODEL,
-                max_tokens=2048,
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": USER_PROMPT_TEMPLATE.format(transcript_text=transcript_text)}],
-            )
-            time.sleep(5)  # proactive throttle between successful calls
-            text = next((b.text for b in response.content if b.type == "text"), "")
-            return {
-                "text": text,
-                "prompt_tokens": response.usage.input_tokens,
-                "completion_tokens": response.usage.output_tokens,
-            }
-        except anthropic.RateLimitError:
-            if attempt == max_attempts:
-                raise RuntimeError("Anthropic API rate limit exceeded after 3 retries.")
-            wait = backoff_schedule[attempt - 1]
-            logger.warning(f"Rate limited by Anthropic — waiting {wait}s before retry {attempt}/3")
-            time.sleep(wait)
+def call_llm(llm, transcript_text: str) -> dict:
+    completion = llm.complete(
+        messages=[{"role": "user", "content": USER_PROMPT_TEMPLATE.format(transcript_text=transcript_text)}],
+        system=SYSTEM_PROMPT,
+        max_tokens=2048,
+    )
+    return {
+        "text": completion.text,
+        "prompt_tokens": completion.prompt_tokens,
+        "completion_tokens": completion.completion_tokens,
+    }
 
 
-def summarize_transcript(client: anthropic.Anthropic, raw_text: str) -> dict:
+def summarize_transcript(llm, raw_text: str) -> dict:
     if len(raw_text) <= MAX_CHARS_PER_CHUNK:
-        return call_claude(client, raw_text)
+        return call_llm(llm, raw_text)
 
     chunks = [raw_text[i:i + MAX_CHARS_PER_CHUNK] for i in range(0, len(raw_text), MAX_CHARS_PER_CHUNK)]
     logger.info(f"  Transcript split into {len(chunks)} chunks.")
@@ -265,13 +251,13 @@ def summarize_transcript(client: anthropic.Anthropic, raw_text: str) -> dict:
 
     for i, chunk in enumerate(chunks):
         logger.info(f"  Summarizing chunk {i + 1}/{len(chunks)}...")
-        result = call_claude(client, chunk)
+        result = call_llm(llm, chunk)
         chunk_summaries.append(result["text"])
         total_prompt_tokens += result["prompt_tokens"]
         total_completion_tokens += result["completion_tokens"]
 
     combined = "\n\n---\n\n".join(chunk_summaries)
-    final = call_claude(client, f"Combine these partial summaries into one coherent structured summary:\n\n{combined}")
+    final = call_llm(llm, f"Combine these partial summaries into one coherent structured summary:\n\n{combined}")
     total_prompt_tokens += final["prompt_tokens"]
     total_completion_tokens += final["completion_tokens"]
 
@@ -293,7 +279,7 @@ def check_ai_capex_flag(summary: str) -> bool:
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def run():
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+    llm = get_provider()
     conn = get_connection()
     total_ingested = 0
 
@@ -340,8 +326,8 @@ def run():
 
                 # Summarize and store
                 try:
-                    logger.info(f"{symbol}: summarizing with {MODEL}...")
-                    summary = summarize_transcript(client, raw_text)
+                    logger.info(f"{symbol}: summarizing with {os.getenv('LLM_PROVIDER', 'anthropic')}...")
+                    summary = summarize_transcript(llm, raw_text)
                     ai_capex_flag = check_ai_capex_flag(summary["text"])
                     with conn.cursor() as cur:
                         insert_summary(cur, transcript_id, summary["text"], ai_capex_flag,
