@@ -1,4 +1,5 @@
 import json
+import pytest
 from unittest.mock import MagicMock, patch
 
 from tests.conftest import make_text_response, make_tool_use_response
@@ -58,6 +59,18 @@ def test_anthropic_structured_returns_tool_input_dict():
     tool = client.messages.create.call_args.kwargs["tools"][0]
     assert tool["name"] == "submit_recommendation"
     assert tool["input_schema"] == {"type": "object"}
+
+
+def test_anthropic_structured_raises_when_no_tool_use_block():
+    client = MagicMock()
+    client.messages.create.return_value = make_text_response("I will not call the tool")
+    provider = AnthropicProvider(client=client)
+    with pytest.raises(ValueError):
+        provider.structured(
+            messages=[{"role": "user", "content": "decide"}],
+            schema={"type": "object"},
+            name="submit_recommendation",
+        )
 
 
 def _ollama_chat_response(content, prompt=7, completion=3):
