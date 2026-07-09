@@ -17,12 +17,12 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-import anthropic
 import uuid6
 from zoneinfo import ZoneInfo
 
 from data.agents import analyst, researcher, trader, manager
 from utils.db import get_connection
+from utils.llm import get_provider
 from utils.logger import get_logger
 from utils.symbols import get_tracked_symbols
 
@@ -102,7 +102,7 @@ def _log_agent_run(run_id, symbol: str, status: str, flag_reason, duration_ms: i
 
 # ── per-symbol pipeline ────────────────────────────────────────────────────────
 
-def run_symbol(symbol: str, sector: str, conn, client: anthropic.Anthropic) -> dict | None:
+def run_symbol(symbol: str, sector: str, conn, llm) -> dict | None:
     """Run the full agent pipeline for one symbol.
 
     Returns the reviewed recommendation dict, or None if skipped.
@@ -121,15 +121,15 @@ def run_symbol(symbol: str, sector: str, conn, client: anthropic.Anthropic) -> d
     run_id = uuid6.uuid7()
 
     analyst_out = analyst.compute_signals(symbol, conn)
-    researcher_out = researcher.analyze(symbol, sector, conn, client)
-    trader_out = trader.decide(symbol, sector, analyst_out, researcher_out, client)
+    researcher_out = researcher.analyze(symbol, sector, conn, llm)
+    trader_out = trader.decide(symbol, sector, analyst_out, researcher_out, llm)
 
     with conn.cursor() as cur:
         price_at_rec = _get_current_price(symbol, cur)
         rec_id = _insert_pending_rec(trader_out, dedup_window, price_at_rec, run_id, cur)
     conn.commit()
 
-    reviewed = manager.review({**trader_out, "id": rec_id}, analyst_out, conn, client)
+    reviewed = manager.review({**trader_out, "id": rec_id}, analyst_out, conn, llm)
 
     duration_ms = int((time.monotonic() - t0) * 1000)
     with conn.cursor() as cur:
@@ -147,14 +147,14 @@ def run_symbol(symbol: str, sector: str, conn, client: anthropic.Anthropic) -> d
 
 def run():
     conn = get_connection()
-    client = anthropic.Anthropic()
+    llm = get_provider()
     symbols = get_tracked_symbols(conn)
 
     counts = {"approved": 0, "flagged": 0, "skipped": 0, "errors": 0}
 
     for symbol, sector in symbols.items():
         try:
-            rec = run_symbol(symbol, sector, conn, client)
+            rec = run_symbol(symbol, sector, conn, llm)
             if rec is None:
                 counts["skipped"] += 1
             else:
