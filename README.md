@@ -101,18 +101,18 @@ By default, the pipeline uses Claude via Anthropic's API. You can optionally swi
 |---|---|---|
 | `LLM_PROVIDER` | `anthropic` | Provider to use (`anthropic` or `ollama`) |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL (used when `LLM_PROVIDER=ollama`) |
-| `OLLAMA_MODEL_FAST` | — | Ollama model name for fast calls (e.g., Qwen) |
-| `OLLAMA_MODEL_SMART` | — | Ollama model name for structured calls (e.g., Qwen) |
+| `OLLAMA_MODEL_FAST` | `qwen3` | Ollama model name for fast calls |
+| `OLLAMA_MODEL_SMART` | `qwen3` | Ollama model name for structured calls |
 
 **To use Ollama:**
 
 1. Ensure Ollama is running locally: `ollama serve`
-2. Pull the Qwen model: `ollama pull qwen2` (or your preferred model)
+2. Pull the Qwen model: `ollama pull qwen3` (or your preferred model)
 3. Add to `config/.env`:
    ```
    LLM_PROVIDER=ollama
-   OLLAMA_MODEL_FAST=qwen2
-   OLLAMA_MODEL_SMART=qwen2
+   OLLAMA_MODEL_FAST=qwen3
+   OLLAMA_MODEL_SMART=qwen3
    ```
 4. Run the pipeline as usual
 
