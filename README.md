@@ -87,14 +87,48 @@ Four named signals the trader weighs on every call:
 - **psycopg2** — database driver
 - **cron** — fully automated, no manual triggers
 
+## LLM Provider Configuration
+
+By default, the pipeline uses Claude via Anthropic's API. You can optionally switch to a local Ollama instance by setting the `LLM_PROVIDER` environment variable.
+
+**Supported providers:**
+- `anthropic` (default) — uses Claude via Anthropic API
+- `ollama` — uses a local Ollama instance
+
+**Environment variables** (add to `config/.env`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `LLM_PROVIDER` | `anthropic` | Provider to use (`anthropic` or `ollama`) |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL (used when `LLM_PROVIDER=ollama`) |
+| `OLLAMA_MODEL_FAST` | — | Ollama model name for fast calls (e.g., Qwen) |
+| `OLLAMA_MODEL_SMART` | — | Ollama model name for structured calls (e.g., Qwen) |
+
+**To use Ollama:**
+
+1. Ensure Ollama is running locally: `ollama serve`
+2. Pull the Qwen model: `ollama pull qwen2` (or your preferred model)
+3. Add to `config/.env`:
+   ```
+   LLM_PROVIDER=ollama
+   OLLAMA_MODEL_FAST=qwen2
+   OLLAMA_MODEL_SMART=qwen2
+   ```
+4. Run the pipeline as usual
+
+To revert to Anthropic, simply change `LLM_PROVIDER` back to `anthropic` or remove the line (defaults to Anthropic).
+
 ## Setup
 
 ```bash
 git clone https://github.com/Zing302/ai-market-intel
 cd ai-market-intel
 pip install -r requirements.txt
-cp config/.env.example config/.env
-# Fill in ANTHROPIC_API_KEY, DB credentials, Gmail app password
+# Create config/.env and fill in required keys:
+# - ANTHROPIC_API_KEY (if using Anthropic provider, the default)
+# - LLM_PROVIDER, OLLAMA_HOST, OLLAMA_MODEL_FAST, OLLAMA_MODEL_SMART (if using Ollama)
+# - Database credentials, Gmail app password (for email delivery)
+# See "LLM Provider Configuration" section above for Ollama setup details.
 python setup_db.py          # creates tables and seeds 20 tracked symbols
 crontab -e                  # add entries from scripts/cron_additions.txt
 ```
