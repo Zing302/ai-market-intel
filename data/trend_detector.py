@@ -1,48 +1,23 @@
 import sys
 import os
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import anthropic
 from dotenv import load_dotenv
 
 from utils.db import get_connection
+from utils.llm import get_provider
 from utils.logger import get_logger
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../config/.env"))
 
 logger = get_logger("trend_detector")
 
-MODEL = "claude-haiku-4-5-20251001"
 LOOKBACK_HOURS = 24
 
 AI_KEYWORDS = ["AI", "GPU", "data center", "capex", "chips", "semiconductor", "Blackwell", "H100"]
 AI_KEYWORD_THRESHOLD = 15
 NEGATIVE_SENTIMENT_MIN_ARTICLES = 20
-
-
-# ── Anthropic helpers ──────────────────────────────────────────────────────────
-
-def call_haiku(client: anthropic.Anthropic, prompt: str) -> str:
-    max_attempts = 3
-    backoff_schedule = [60, 120, 240]
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            response = client.messages.create(
-                model=MODEL,
-                max_tokens=10,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            time.sleep(5)  # proactive throttle between successful calls
-            return next((b.text for b in response.content if b.type == "text"), "").strip().upper()
-        except anthropic.RateLimitError:
-            if attempt == max_attempts:
-                raise RuntimeError("Anthropic API rate limit exceeded after 3 retries.")
-            wait = backoff_schedule[attempt - 1]
-            logger.warning(f"Rate limited by Anthropic — waiting {wait}s before retry {attempt}/3")
-            time.sleep(wait)
 
 
 # ── Checks ─────────────────────────────────────────────────────────────────────
@@ -52,15 +27,18 @@ def check_ai_keyword_spike(headlines: list[str]) -> tuple[bool, list[str]]:
     return len(matched) >= AI_KEYWORD_THRESHOLD, matched
 
 
-def check_negative_sentiment(client: anthropic.Anthropic, symbol: str, headlines: list[str]) -> bool:
+def check_negative_sentiment(llm, symbol: str, headlines: list[str]) -> bool:
     headlines_text = "\n".join(f"- {h}" for h in headlines)
     prompt = (
         f"Here are recent news headlines about {symbol}:\n{headlines_text}\n\n"
         "Do these headlines collectively indicate negative sentiment toward this stock? "
         "Reply only YES or NO."
     )
-    answer = call_haiku(client, prompt)
-    logger.debug(f"{symbol}: Haiku sentiment response: {answer!r}")
+    answer = llm.complete(
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=10,
+    ).text.strip().upper()
+    logger.debug(f"{symbol}: sentiment response: {answer!r}")
     return answer.startswith("YES")
 
 
@@ -101,7 +79,7 @@ def insert_trend(cur, symbol: str, trend_type: str, headline_count: int,
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def run():
-    client = anthropic.Anthropic()
+    llm = get_provider()
     conn = get_connection()
 
     trends_detected = 0
@@ -129,7 +107,7 @@ def run():
             # Check 2 — Negative Sentiment (only if enough articles)
             if len(headlines) >= NEGATIVE_SENTIMENT_MIN_ARTICLES:
                 logger.info(f"{symbol}: running negative sentiment check via Haiku...")
-                is_negative = check_negative_sentiment(client, symbol, headlines)
+                is_negative = check_negative_sentiment(llm, symbol, headlines)
                 if is_negative:
                     logger.info(f"{symbol}: NEGATIVE_SENTIMENT detected.")
                     flags.append(("NEGATIVE_SENTIMENT", len(headlines), headlines))
