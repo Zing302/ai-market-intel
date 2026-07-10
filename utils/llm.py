@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 
 import anthropic
+import httpx
 import ollama
 
 from utils.anthropic_client import call_with_retry, extract_text, extract_tool_input
@@ -96,7 +97,9 @@ class OllamaProvider:
                 time.sleep(wait)
             try:
                 return self._client.chat(**kwargs)
-            except (ConnectionError, ollama.ResponseError) as exc:
+            except (ConnectionError, httpx.TransportError, ollama.ResponseError) as exc:
+                if isinstance(exc, ollama.ResponseError) and 400 <= exc.status_code < 500:
+                    raise
                 last_exc = exc
         raise RuntimeError(f"Ollama call failed after retries: {last_exc}")
 

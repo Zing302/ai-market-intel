@@ -1,4 +1,6 @@
 import json
+import httpx
+import ollama as ollama_module
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -128,6 +130,64 @@ def test_ollama_structured_parses_json_and_passes_format():
 
     assert result == {"action": "BUY", "score": 0.7}
     assert client.chat.call_args.kwargs["format"] == schema
+
+
+def test_ollama_chat_retries_transient_connection_error_then_succeeds(monkeypatch):
+    client = MagicMock()
+    ok_response = _ollama_chat_response("recovered")
+    client.chat.side_effect = [ConnectionError("refused"), ok_response]
+    provider = OllamaProvider(client=client, model_fast="qwen3", model_smart="qwen3")
+    sleeps = []
+    monkeypatch.setattr("utils.llm.time.sleep", lambda s: sleeps.append(s))
+
+    result = provider.complete(messages=[{"role": "user", "content": "hi"}])
+
+    assert result.text == "recovered"
+    assert client.chat.call_count == 2
+    assert sleeps == [2]
+
+
+def test_ollama_chat_raises_runtime_error_after_exhausting_retries(monkeypatch):
+    client = MagicMock()
+    client.chat.side_effect = ConnectionError("refused")
+    provider = OllamaProvider(client=client, model_fast="qwen3", model_smart="qwen3")
+    sleeps = []
+    monkeypatch.setattr("utils.llm.time.sleep", lambda s: sleeps.append(s))
+
+    with pytest.raises(RuntimeError, match="Ollama call failed after retries"):
+        provider.complete(messages=[{"role": "user", "content": "hi"}])
+
+    assert client.chat.call_count == 4
+    assert sleeps == [2, 5, 10]
+
+
+def test_ollama_chat_retries_httpx_transport_error(monkeypatch):
+    client = MagicMock()
+    ok_response = _ollama_chat_response("recovered")
+    client.chat.side_effect = [httpx.ReadError("boom"), ok_response]
+    provider = OllamaProvider(client=client, model_fast="qwen3", model_smart="qwen3")
+    sleeps = []
+    monkeypatch.setattr("utils.llm.time.sleep", lambda s: sleeps.append(s))
+
+    result = provider.complete(messages=[{"role": "user", "content": "hi"}])
+
+    assert result.text == "recovered"
+    assert client.chat.call_count == 2
+    assert sleeps == [2]
+
+
+def test_ollama_chat_fails_fast_on_4xx_response_error(monkeypatch):
+    client = MagicMock()
+    client.chat.side_effect = ollama_module.ResponseError("model not found", status_code=404)
+    provider = OllamaProvider(client=client, model_fast="qwen3", model_smart="qwen3")
+    sleeps = []
+    monkeypatch.setattr("utils.llm.time.sleep", lambda s: sleeps.append(s))
+
+    with pytest.raises(ollama_module.ResponseError):
+        provider.complete(messages=[{"role": "user", "content": "hi"}])
+
+    assert client.chat.call_count == 1
+    assert sleeps == []
 
 
 def test_get_provider_defaults_to_anthropic(monkeypatch):
