@@ -3,6 +3,7 @@ psycopg2-binary
 python-dotenv
 anthropic
 ollama
+httpx
 feedparser
 pytest
 pytest-mock
