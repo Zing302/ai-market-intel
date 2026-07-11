@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Market Intelligence</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <header class="site-header">
+    <h1>AI Market Intelligence</h1>
+    <div class="header-meta">
+      <span class="badge badge-live">Live market · yfinance</span>
+      <span class="badge badge-pipeline">AI Pipeline · Postgres</span>
+      <span id="last-updated" class="last-updated"></span>
+    </div>
+  </header>
+
+  <main>
+    <section id="recommendations-section" class="panel">
+      <h2>AI Recommendations</h2>
+      <div id="recommendations" class="card-grid"><p class="loading">Loading…</p></div>
+    </section>
+
+    <section id="market-section" class="panel">
+      <h2>Live Market</h2>
+      <div id="watchlist" class="tile-grid"><p class="loading">Loading…</p></div>
+    </section>
+
+    <section id="intel-section" class="panel">
+      <h2>Intel</h2>
+      <div class="intel-grid">
+        <div><h3>Alerts</h3><div id="alerts"><p class="loading">Loading…</p></div></div>
+        <div><h3>Trends</h3><div id="trends"><p class="loading">Loading…</p></div></div>
+        <div><h3>Earnings</h3><div id="earnings"><p class="loading">Loading…</p></div></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="detail-overlay" class="overlay hidden">
+    <div class="overlay-card">
+      <button id="detail-close" class="overlay-close">×</button>
+      <div id="detail-body"></div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
