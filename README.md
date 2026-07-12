@@ -12,6 +12,22 @@ Three times per market day, a four-agent pipeline runs on every tracked symbol a
 - **Trend report** — AI/sector keyword spikes detected across 800+ news headlines
 - **Earnings intelligence** — AI capex signals and sentiment from SEC 8-K filings
 
+## Web Dashboard
+
+A second output surface alongside the daily email. Displays two data sources on one page:
+
+- **AI Pipeline (Postgres)** — approved recommendations, alerts, trends, earnings intel
+- **Live Market (yfinance)** — a hybrid watchlist (falls back to the latest `stock_prices`
+  row when yfinance is unreachable) with click-to-detail charts, news, and each symbol's
+  latest pipeline recommendation
+
+Run it:
+
+```bash
+./scripts/run_web.sh         # serves on http://localhost:5001
+# or: WEB_PORT=8080 conda run -n market_env python -m web.app
+```
+
 ## Architecture
 
 ```
