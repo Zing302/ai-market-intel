@@ -78,3 +78,19 @@ def test_get_stock_detail_builds_chart_and_info():
     assert len(detail["chart"]) == 2
     assert detail["chart"][-1]["close"] == 105.0
     assert detail["news"] == []
+
+
+def test_get_stock_detail_drops_nan_closes():
+    t = MagicMock()
+    idx = pd.to_datetime(["2026-06-19", "2026-06-20", "2026-06-21"])
+    t.history.return_value = pd.DataFrame(
+        {"Close": [100.0, float("nan"), 105.0]}, index=idx
+    )
+    t.news = []
+    t.info = {"longName": "NVIDIA Corp"}
+    with patch("web.market.yf.Ticker", return_value=t):
+        detail = market.get_stock_detail("NVDA", "1m")
+    assert len(detail["chart"]) == 2
+    assert all(not (isinstance(c["close"], float) and c["close"] != c["close"])
+               for c in detail["chart"])
+    assert [c["close"] for c in detail["chart"]] == [100.0, 105.0]

@@ -82,6 +82,7 @@ def get_stock_detail(symbol: str, period: str = "1m") -> dict:
 
     chart = []
     hist = ticker.history(period=yf_period, interval=interval)
+    hist = hist.dropna(subset=["Close"])
     for idx, row in hist.iterrows():
         chart.append({
             "label": idx.strftime("%Y-%m-%d %H:%M"),
