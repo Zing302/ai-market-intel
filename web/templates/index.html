@@ -4,44 +4,124 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Market Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
 <body>
-  <header class="site-header">
-    <h1>AI Market Intelligence</h1>
-    <div class="header-meta">
-      <span class="badge badge-live">Live market · yfinance</span>
-      <span class="badge badge-pipeline">AI Pipeline · Postgres</span>
-      <span id="last-updated" class="last-updated"></span>
-    </div>
-  </header>
+  <div class="bg-grid-mesh"></div>
 
-  <main>
-    <section id="recommendations-section" class="panel">
-      <h2>AI Recommendations</h2>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-wrapper">
+          <svg class="pulse-logo" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L3 16.99l1.5 1.5z" fill="url(#logo-grad)"/>
+            <defs>
+              <linearGradient id="logo-grad" x1="3" y1="3" x2="22" y2="18.5" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#00f2fe"/>
+                <stop offset="1" stop-color="#4facfe"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="title-group">
+          <h1>AI Market Intelligence</h1>
+          <p class="subtitle">Pipeline recommendations, alerts &amp; live market — signal only, not financial advice</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="search-box-wrapper">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M15.5 14H14.71L14.43 13.73C15.41 12.59 16 11.11 16 9.5C16 5.91 13.09 3 9.5 3C5.91 3 3 5.91 3 9.5C3 13.09 5.91 16 9.5 16C11.11 16 12.59 15.41 13.73 14.43L14 14.71V15.5L19 20.49L20.49 19L15.5 14ZM9.5 14C7.01 14 5 11.99 5 9.5C5 7.01 7.01 5 9.5 5C11.99 5 14 7.01 14 9.5C14 11.99 11.99 14 9.5 14Z" fill="currentColor"/>
+          </svg>
+          <input type="text" id="ticker-search" placeholder="Ticker (e.g. NVDA)…" autocomplete="off" />
+        </div>
+        <div class="header-meta">
+          <span class="badge badge-live">Live market · yfinance</span>
+          <span class="badge badge-pipeline">AI Pipeline · Postgres</span>
+          <span id="last-updated" class="last-updated"></span>
+        </div>
+      </div>
+    </header>
+
+    <section class="watchlist-section">
+      <h3 class="section-title">Market Watchlist</h3>
+      <div id="watchlist" class="watchlist-grid">
+        <div class="watchlist-skeleton"></div>
+        <div class="watchlist-skeleton"></div>
+        <div class="watchlist-skeleton"></div>
+        <div class="watchlist-skeleton"></div>
+        <div class="watchlist-skeleton"></div>
+        <div class="watchlist-skeleton"></div>
+        <div class="watchlist-skeleton"></div>
+        <div class="watchlist-skeleton"></div>
+      </div>
+    </section>
+
+    <div class="main-content-layout">
+      <section class="ticker-profile-card">
+        <div id="profile-loading" class="profile-state">
+          <div class="pulse-loader"></div>
+          <p>Select a ticker…</p>
+        </div>
+        <div id="profile-content" class="hidden">
+          <div class="profile-header">
+            <div>
+              <div class="profile-symbol-row">
+                <h2 id="stock-symbol"></h2>
+                <span class="source-tag">yfinance</span>
+              </div>
+              <h3 id="stock-name" class="stock-company-name"></h3>
+            </div>
+            <div class="profile-price-group">
+              <div class="price-val" id="stock-price"></div>
+            </div>
+          </div>
+          <div class="pipeline-view">
+            <h4>Pipeline view</h4>
+            <div id="pipeline-rec"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="chart-panel">
+        <div class="chart-header">
+          <h4>Price Chart</h4>
+          <div class="chart-periods" id="chart-periods">
+            <button class="period-btn" data-period="1d">1D</button>
+            <button class="period-btn" data-period="5d">5D</button>
+            <button class="period-btn active" data-period="1m">1M</button>
+            <button class="period-btn" data-period="6m">6M</button>
+            <button class="period-btn" data-period="1y">1Y</button>
+          </div>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="stock-chart"></canvas>
+        </div>
+      </section>
+    </div>
+
+    <section class="recs-section">
+      <h3 class="section-title">AI Recommendations</h3>
       <div id="recommendations" class="card-grid"><p class="loading">Loading…</p></div>
     </section>
 
-    <section id="market-section" class="panel">
-      <h2>Live Market</h2>
-      <div id="watchlist" class="tile-grid"><p class="loading">Loading…</p></div>
-    </section>
-
-    <section id="intel-section" class="panel">
-      <h2>Intel</h2>
+    <section class="intel-section">
+      <h3 class="section-title">Intel</h3>
       <div class="intel-grid">
-        <div><h3>Alerts</h3><div id="alerts"><p class="loading">Loading…</p></div></div>
-        <div><h3>Trends</h3><div id="trends"><p class="loading">Loading…</p></div></div>
-        <div><h3>Earnings</h3><div id="earnings"><p class="loading">Loading…</p></div></div>
+        <div class="intel-panel"><h4>Alerts</h4><div id="alerts"><p class="loading">Loading…</p></div></div>
+        <div class="intel-panel"><h4>Trends</h4><div id="trends"><p class="loading">Loading…</p></div></div>
+        <div class="intel-panel"><h4>Earnings</h4><div id="earnings"><p class="loading">Loading…</p></div></div>
       </div>
     </section>
-  </main>
 
-  <div id="detail-overlay" class="overlay hidden">
-    <div class="overlay-card">
-      <button id="detail-close" class="overlay-close">×</button>
-      <div id="detail-body"></div>
-    </div>
+    <section class="news-section">
+      <h3 class="section-title">Latest News <span id="news-symbol" class="news-symbol-tag"></span></h3>
+      <div id="news" class="news-grid"><p class="loading">Select a ticker to load news.</p></div>
+    </section>
   </div>
 
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
