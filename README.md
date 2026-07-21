@@ -30,24 +30,41 @@ Run it:
 
 ## Architecture
 
+Every LLM call in the pipeline goes through a single provider abstraction
+(`utils/llm.py::get_provider()`), so the whole recommendation chain, the
+transcript summarizer, and the trend detector can run on Anthropic's API or a
+local Ollama model without any call-site changes — see
+[LLM Provider Configuration](#llm-provider-configuration).
+
 ```
 Yahoo Finance ──────────────────────────────────────────────► stock_prices
-SEC EDGAR ──► transcript_ingester ──► Claude ────────────────► summaries
+SEC EDGAR ──► transcript_ingester ───────────────────────────► summaries
 Google News ──► news_fetcher ──► trend_detector ─────────────► trends
 
                     ┌──────────────────────────────────────────────────┐
                     │  Recommendation Pipeline  (3x/day, 20 tickers)   │
                     │                                                   │
                     │  analyst.py ──► researcher.py ──► trader.py      │
-                    │  (SMA/RSI)     (Haiku sentiment)  (Haiku+tools)  │
+                    │  (SMA/RSI)     (fast-tier LLM)   (structured LLM)│
                     │                                        │          │
                     │                                 manager.py        │
-                    │                           (guards + Sonnet)       │
+                    │                       (guards + smart-tier LLM)   │
                     │                                        │          │
                     │                                recommendations     │
                     └──────────────────────────────────────────────────┘
-                                                            │
-                                                     reporter.py ──► Gmail
+                                            │
+              every fast/smart LLM call above resolves through
+                     utils/llm.py :: get_provider()
+              ┌──────────────────────────────┴──────────────────────────────┐
+              │                                                                │
+   AnthropicProvider (default)                                    OllamaProvider
+   Haiku (fast) / Sonnet (smart)                                local model (fast/smart)
+
+                    Postgres (stock_prices · summaries · trends · recommendations)
+                          │                                        │
+                   reporter.py ──► Gmail                    web/ (Flask, :5001)
+                   (daily 5pm briefing)               Postgres intel + live yfinance
+                                                        watchlist — see Web Dashboard
 ```
 
 ## Agents
@@ -55,9 +72,13 @@ Google News ──► news_fetcher ──► trend_detector ──────�
 | Agent | Model | Role |
 |---|---|---|
 | **Analyst** | Python / `ta` lib | Deterministic SMA(5/20) crossover and RSI(14) signals |
-| **Researcher** | Claude Haiku | Qualitative sentiment across news, social posts, earnings (−1.0 to +1.0) |
-| **Trader** | Claude Haiku + tool-use | Structured BUY/HOLD/SELL with schema-enforced score and rationale |
-| **Manager** | Deterministic + Claude Sonnet | Guard checks → Sonnet escalation on high conviction or signal conflict |
+| **Researcher** | LLM, fast tier | Qualitative sentiment across news, social posts, earnings (−1.0 to +1.0) |
+| **Trader** | LLM, fast tier + structured output | Schema-enforced BUY/HOLD/SELL with score and rationale |
+| **Manager** | Deterministic + LLM, smart tier | Guard checks → smart-tier escalation on high conviction or signal conflict |
+
+"Fast" and "smart" tiers resolve per provider: Anthropic maps them to Haiku
+and Sonnet; Ollama maps them to `OLLAMA_MODEL_FAST`/`OLLAMA_MODEL_SMART`
+(both can point at the same local model).
 
 ### Trading Techniques
 
@@ -96,7 +117,8 @@ Four named signals the trader weighs on every call:
 
 - **Python 3.11** — pipeline orchestration
 - **PostgreSQL** — prices, articles, recommendations, agent audit log
-- **Anthropic Claude API** — Haiku (researcher, trader) + Sonnet (manager escalation)
+- **Anthropic Claude API** (default) or **Ollama** (local) — swappable via `utils/llm.py`, see LLM Provider Configuration
+- **Flask** — web dashboard (`web/`)
 - **yfinance** — real-time stock prices
 - **ta** — technical indicators (SMA, RSI)
 - **feedparser** — RSS news ingestion
@@ -158,16 +180,23 @@ data/
   collector.py       stock price collection
   news_fetcher.py    RSS article ingestion
   trend_detector.py  keyword trend detection
+  transcript_ingester.py  SEC 8-K summarization
 reports/
   reporter.py        email assembly and delivery
+web/
+  app.py             Flask routes ({success,...} JSON envelopes)
+  data_access.py     read-only Postgres queries (dashboard)
+  market.py          live yfinance + DB-fallback watchlist
+  templates/, static/  dashboard UI (:5001, scripts/run_web.sh)
 scripts/
   run_*.sh           cron wrappers for each job
   cleanup_db.py      per-table row retention (2–90 days)
   outcome_backfill.py  7-day recommendation scoring
 utils/
-  anthropic_client.py  retry + token helpers
+  llm.py               provider abstraction (Anthropic default / Ollama)
+  anthropic_client.py  retry + token helpers (used by AnthropicProvider)
   symbols.py           DB-backed ticker cache
   circuit_breaker.py   per-source failure isolation
 tests/
-  unit/              141 tests, all passing
+  unit/              189 tests, all passing
 ```
