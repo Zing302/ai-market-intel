@@ -3,6 +3,7 @@
 Receives analyst signals (quantitative) + researcher output (qualitative)
 and calls the submit_recommendation tool to produce a structured decision.
 """
+import math
 import os
 import sys
 
@@ -11,6 +12,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 from utils.logger import get_logger
 
 logger = get_logger("trader")
+
+# The bounds below live in SUBMIT_TOOL's JSON Schema too, but a schema is a
+# request, not a guarantee: OllamaProvider.structured does no validation, so
+# every score has to be re-checked in Python before it goes anywhere near SQL.
+SCORE_LIMIT = 1.0
+
+# recommendations.score is NUMERIC(4, 3) — one integer digit. A value of 10 or
+# more does not merely fail its own INSERT, it aborts the surrounding
+# transaction and kills every symbol processed after it in the same run.
+_SCORE_COLUMN_LIMIT = 9.999
 
 SUBMIT_TOOL = {
     "name": "submit_recommendation",
@@ -98,6 +109,48 @@ def _build_prompt(symbol: str, sector: str, analyst: dict, researcher: dict) -> 
     return "\n".join(lines)
 
 
+def validate_score(rec: dict) -> dict:
+    """Return rec with a storable score, flagged when the model went out of range.
+
+    Deliberately NOT clamped into [-1, 1]: rewriting -1000 as -1.0 would turn a
+    broken model into a maximally confident one, which is the exact silent
+    coercion this pipeline is trying to stop. Instead the value is kept as the
+    model gave it whenever the column can hold it, replaced by a sign-preserving
+    sentinel when it cannot, and named verbatim in flag_reason either way. Every
+    reader (manager guards, report digest) still sees |score| > 1 and flags it.
+
+    Idempotent: a rec that already passed is returned unchanged, so calling this
+    again at the SQL boundary costs nothing.
+    """
+    raw = rec.get("score")
+    try:
+        score = float(raw)
+    except (TypeError, ValueError):
+        score = None
+
+    if score is not None and math.isfinite(score) and abs(score) <= SCORE_LIMIT:
+        return rec
+
+    if score is None or not math.isfinite(score):
+        # No usable sign to preserve (None, "abc", NaN, inf).
+        storable = _SCORE_COLUMN_LIMIT
+    else:
+        storable = math.copysign(min(abs(score), _SCORE_COLUMN_LIMIT), score)
+
+    reason = (
+        f"Trader returned out-of-range score {raw!r} "
+        f"(valid range {-SCORE_LIMIT}..{SCORE_LIMIT}); recorded as {storable}"
+    )
+    logger.warning(f"{rec.get('symbol')}: {reason}")
+
+    return {
+        **rec,
+        "score": storable,
+        "raw_score": raw,
+        "flag_reason": "; ".join(r for r in (rec.get("flag_reason"), reason) if r),
+    }
+
+
 def decide(
     symbol: str,
     sector: str,
@@ -134,11 +187,11 @@ def decide(
 
     logger.info(f"{symbol}: {tool_input['action']} (score={tool_input['score']})")
 
-    return {
+    return validate_score({
         "symbol": symbol,
         "action": tool_input["action"],
         "score": tool_input["score"],
         "rationale": tool_input["rationale"],
         "techniques_used": tool_input["techniques_used"],
         "confidence_flag": confidence_flag,
-    }
+    })

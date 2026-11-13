@@ -33,20 +33,34 @@ def _make_conn(articles=None, social=None, transcript=None, prior=None):
 # ── _parse_response ────────────────────────────────────────────────────────────
 
 def test_parse_response_extracts_category_and_reason():
-    category, reason = _parse_response("bullish\nStrong earnings beat expectations.")
+    category, reason, parse_ok = _parse_response("bullish\nStrong earnings beat expectations.")
     assert category == "bullish"
     assert "earnings" in reason
+    assert parse_ok is True
 
 
-def test_parse_response_defaults_neutral_for_unknown_category():
-    category, reason = _parse_response("very_positive\nSomething happened.")
+def test_parse_response_flags_unknown_category_instead_of_neutral():
+    """An unrecognized category is a parse failure, not a neutral reading.
+
+    The score still has to be usable, so the category falls back to neutral,
+    but parse_ok=False keeps it distinguishable from a model that meant neutral.
+    """
+    category, reason, parse_ok = _parse_response("very_positive\nSomething happened.")
     assert category == "neutral"
+    assert parse_ok is False
+
+
+def test_parse_response_reports_genuine_neutral_as_parsed():
+    category, reason, parse_ok = _parse_response("neutral\nNothing much moved.")
+    assert category == "neutral"
+    assert parse_ok is True
 
 
 def test_parse_response_handles_empty_string():
-    category, reason = _parse_response("")
+    category, reason, parse_ok = _parse_response("")
     assert category == "neutral"
     assert reason == ""
+    assert parse_ok is False
 
 
 # ── analyze — happy path ───────────────────────────────────────────────────────

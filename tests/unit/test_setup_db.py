@@ -25,8 +25,25 @@ def test_setup_calls_execute_for_all_tables(mock_get_conn):
 
     setup()
 
-    # 7 existing + 11 new DDL statements
-    assert cur.execute.call_count == 18
+    # 7 existing + 12 v2 DDL statements (11 creates + the parse_ok ALTER)
+    assert cur.execute.call_count == 19
+
+
+@patch("setup_db.get_connection")
+def test_sentiment_scores_parse_ok_alter_runs_after_create(mock_get_conn):
+    """The additive ALTER must be executed, and only once the table exists."""
+    conn, cur = _make_conn()
+    mock_get_conn.return_value = conn
+
+    setup()
+
+    calls = [str(c.args[0]) for c in cur.execute.call_args_list]
+    assert setup_db.ALTER_SENTIMENT_SCORES_PARSE_OK in calls
+    create_idx = calls.index(setup_db.CREATE_SENTIMENT_SCORES)
+    alter_idx = calls.index(setup_db.ALTER_SENTIMENT_SCORES_PARSE_OK)
+    assert create_idx < alter_idx
+    assert "ADD COLUMN IF NOT EXISTS" in setup_db.ALTER_SENTIMENT_SCORES_PARSE_OK
+    assert "parse_ok" in setup_db.ALTER_SENTIMENT_SCORES_PARSE_OK
 
 
 @patch("setup_db.get_connection")

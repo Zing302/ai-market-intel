@@ -17,7 +17,11 @@ RETENTION = {
     "social_posts":     ("fetched_at",  2),
     "agent_runs":       ("created_at", 14),
     "trends":           ("detected_at",30),
-    "stock_prices":     ("fetched_at", 30),
+    # Coupled to data.agents.analyst._MIN_DAYS (22): that is 22 *trading* days read
+    # from technicals_v (one row per trading day), not calendar days. 30 calendar
+    # days is only ~21 trading days, so every symbol returned insufficient_data.
+    # 120 calendar days ≈ 83 trading days — comfortable headroom plus holidays.
+    "stock_prices":     ("fetched_at", 120),
     "sentiment_scores": ("computed_at",90),
     "recommendations":  ("created_at", 90),
 }

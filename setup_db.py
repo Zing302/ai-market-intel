@@ -107,6 +107,13 @@ CREATE TABLE IF NOT EXISTS sentiment_scores (
 );
 """
 
+# Additive, re-runnable: existing rows predate the researcher's parse check and
+# are assumed to have been parsed successfully (DEFAULT TRUE).
+ALTER_SENTIMENT_SCORES_PARSE_OK = """
+ALTER TABLE sentiment_scores
+    ADD COLUMN IF NOT EXISTS parse_ok BOOLEAN NOT NULL DEFAULT TRUE;
+"""
+
 CREATE_SENTIMENT_SCORES_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_sentiment_symbol_time
     ON sentiment_scores (symbol, computed_at DESC);
@@ -252,6 +259,7 @@ def setup():
             # ── v2 additions ──────────────────────────────────────────────────
             cur.execute(CREATE_TRACKED_SYMBOLS)
             cur.execute(CREATE_SENTIMENT_SCORES)
+            cur.execute(ALTER_SENTIMENT_SCORES_PARSE_OK)
             cur.execute(CREATE_SENTIMENT_SCORES_INDEX)
             cur.execute(CREATE_RECOMMENDATIONS)
             cur.execute(CREATE_RECOMMENDATIONS_INDEXES)

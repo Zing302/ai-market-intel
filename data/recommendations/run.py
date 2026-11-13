@@ -13,22 +13,23 @@ Per-symbol flow:
 import os
 import sys
 import time
-from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 import uuid6
-from zoneinfo import ZoneInfo
 
 from data.agents import analyst, researcher, trader, manager
+# Bound directly rather than reached through the trader module above: this is
+# the orchestrator's own SQL-boundary guard and must hold regardless of what
+# the agent layer returns.
+from data.agents.trader import validate_score
+from utils.clock import report_now
 from utils.db import get_connection
 from utils.llm import get_provider
 from utils.logger import get_logger
 from utils.symbols import get_tracked_symbols
 
 logger = get_logger("recommendations")
-
-_ET = ZoneInfo("America/New_York")
 
 # Maximum pipeline runs per symbol per calendar day (ET)
 MAX_RUNS_PER_SYMBOL_PER_DAY = 3
@@ -37,8 +38,13 @@ MAX_RUNS_PER_SYMBOL_PER_DAY = 3
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 def _dedup_window() -> str:
-    """Current ET hour as YYYY-MM-DD-HH (used as idempotency key)."""
-    return datetime.now(_ET).strftime("%Y-%m-%d-%H")
+    """Current ET hour as YYYY-MM-DD-HH (used as idempotency key).
+
+    Goes through utils.clock so a host without tzdata degrades to local time
+    with a warning instead of raising at import. Output is unchanged whenever
+    the ET zone resolves normally.
+    """
+    return report_now().strftime("%Y-%m-%d-%H")
 
 
 def _already_run(symbol: str, dedup_window: str, cur) -> bool:
@@ -70,6 +76,22 @@ def _get_current_price(symbol: str, cur) -> float | None:
     return float(row[0]) if row else None
 
 
+def _serialize_techniques(techniques) -> str:
+    """Render techniques_used for the TEXT column as a comma-separated list.
+
+    recommendations.techniques_used is declared TEXT, but a Python list is
+    adapted by psycopg2 into a Postgres array expression, which is a different
+    type from the column it is being assigned to. Serializing explicitly keeps
+    the write side honest; the technique vocabulary is a fixed enum with no
+    commas in it, so "a,b" round-trips losslessly and stays readable in psql.
+    """
+    if techniques is None:
+        return ""
+    if isinstance(techniques, str):
+        return techniques
+    return ",".join(str(t) for t in techniques)
+
+
 def _insert_pending_rec(rec: dict, dedup_window: str, price_at_rec, run_id, cur) -> int:
     cur.execute(
         """
@@ -81,7 +103,7 @@ def _insert_pending_rec(rec: dict, dedup_window: str, price_at_rec, run_id, cur)
         """,
         (
             rec["symbol"], rec["action"], rec["score"], rec["rationale"],
-            rec["techniques_used"], rec.get("confidence_flag"),
+            _serialize_techniques(rec["techniques_used"]), rec.get("confidence_flag"),
             dedup_window, price_at_rec, str(run_id),
         ),
     )
@@ -122,7 +144,10 @@ def run_symbol(symbol: str, sector: str, conn, llm) -> dict | None:
 
     analyst_out = analyst.compute_signals(symbol, conn)
     researcher_out = researcher.analyze(symbol, sector, conn, llm)
-    trader_out = trader.decide(symbol, sector, analyst_out, researcher_out, llm)
+    # Re-validated here, not just inside the trader: an out-of-range score that
+    # reaches the INSERT aborts the shared transaction and takes every later
+    # symbol with it, so the orchestrator checks at its own SQL boundary.
+    trader_out = validate_score(trader.decide(symbol, sector, analyst_out, researcher_out, llm))
 
     with conn.cursor() as cur:
         price_at_rec = _get_current_price(symbol, cur)
@@ -162,6 +187,15 @@ def run():
         except Exception as exc:
             logger.error(f"{symbol}: pipeline error — {exc}")
             counts["errors"] += 1
+            # The connection is shared across symbols. A failed statement leaves
+            # Postgres in an aborted transaction, so without this rollback every
+            # remaining symbol dies with InFailedSqlTransaction — one bad symbol
+            # used to take out the whole rest of the run.
+            try:
+                conn.rollback()
+            except Exception as rollback_exc:
+                logger.critical(f"{symbol}: rollback failed, aborting run — {rollback_exc}")
+                raise
 
     conn.close()
     logger.info(
