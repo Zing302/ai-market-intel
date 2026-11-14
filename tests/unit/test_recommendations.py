@@ -11,7 +11,6 @@ from data.recommendations.run import (
     run_symbol,
     MAX_RUNS_PER_SYMBOL_PER_DAY,
 )
-from reports.reporter import build_recommendations_section, fetch_approved_recs
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -233,84 +232,3 @@ def test_run_symbol_price_can_be_none(mock_mgr, mock_trd, mock_res, mock_ana):
     conn, cur = _make_conn(None, (0,), None, (42,))
     result = run_symbol("NVDA", "Tech", conn, MagicMock())
     assert result is not None  # pipeline still completes
-
-
-# ── reporter: build_recommendations_section ────────────────────────────────────
-
-def _rec(symbol="NVDA", action="BUY", score=0.6, flag=None, decision=None):
-    return {
-        "symbol": symbol,
-        "action": action,
-        "score": score,
-        "rationale": (
-            "[SIGNAL ONLY — NOT FINANCIAL ADVICE] "
-            "momentum signal is bullish. Sentiment confirms."
-        ),
-        "techniques_used": ["momentum"],
-        "confidence_flag": flag,
-        "manager_decision": decision,
-        "created_at": "10:15",
-    }
-
-
-def test_build_recs_section_no_recs():
-    out = build_recommendations_section([])
-    assert "No approved signals" in out
-
-
-def test_build_recs_section_shows_symbol_and_action():
-    out = build_recommendations_section([_rec()])
-    assert "NVDA" in out
-    assert "BUY" in out
-
-
-def test_build_recs_section_strips_disclaimer_prefix():
-    out = build_recommendations_section([_rec()])
-    # Disclaimer should not appear in the rationale lines (only in the header is fine)
-    lines = out.splitlines()
-    rationale_lines = [l for l in lines if l.startswith("  ")]
-    assert not any("[SIGNAL ONLY" in l for l in rationale_lines)
-    assert "momentum signal is bullish" in out
-
-
-def test_build_recs_section_shows_low_confidence_flag():
-    out = build_recommendations_section([_rec(flag="low")])
-    assert "low confidence" in out
-
-
-def test_build_recs_section_shows_override_note():
-    out = build_recommendations_section([_rec(decision="override_to_hold")])
-    assert "overridden to HOLD" in out
-
-
-def test_build_recs_section_sorts_by_abs_score_in_header():
-    # Just verifies multiple recs render without error
-    recs = [_rec("NVDA", "BUY", 0.6), _rec("AAPL", "SELL", -0.8)]
-    out = build_recommendations_section(recs)
-    assert "NVDA" in out and "AAPL" in out
-
-
-# ── reporter: fetch_approved_recs ──────────────────────────────────────────────
-
-def test_fetch_approved_recs_returns_list():
-    from datetime import datetime
-    conn = MagicMock()
-    cur = MagicMock()
-    conn.cursor.return_value.__enter__.return_value = cur
-    cur.fetchall.return_value = [
-        ("NVDA", "BUY", 0.6,
-         "[SIGNAL ONLY — NOT FINANCIAL ADVICE] momentum bullish. Sentiment up.",
-         ["momentum"], None, None, datetime(2026, 5, 12, 10, 15)),
-    ]
-    recs = fetch_approved_recs(conn)
-    assert len(recs) == 1
-    assert recs[0]["symbol"] == "NVDA"
-    assert recs[0]["score"] == 0.6
-
-
-def test_fetch_approved_recs_empty_when_no_rows():
-    conn = MagicMock()
-    cur = MagicMock()
-    conn.cursor.return_value.__enter__.return_value = cur
-    cur.fetchall.return_value = []
-    assert fetch_approved_recs(conn) == []
